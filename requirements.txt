@@ -1,0 +1,10 @@
+SpeechRecognition
+pyttsx3
+pyaudio
+wikipedia
+requests
+pillow
+keyboard
+psutil
+pystray
+pyinstaller

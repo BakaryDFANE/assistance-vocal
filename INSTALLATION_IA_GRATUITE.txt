@@ -1,0 +1,26 @@
+IA gratuite pour BF avec Ollama
+
+1. Installe Ollama pour Windows:
+   https://ollama.com/download/windows
+
+2. Ferme et rouvre le terminal.
+
+3. Verifie que Ollama marche:
+   ollama --version
+
+4. Installe le modele conseille pour commencer:
+   ollama pull llama3.2
+
+5. Teste le modele:
+   ollama run llama3.2
+
+6. Lance BF:
+   py -3.12 assistant_bf.py
+
+Si BF dit "Ollama n'est pas disponible", ouvre Ollama depuis le menu Demarrer,
+puis relance BF. Ollama doit tourner en arriere-plan sur http://localhost:11434.
+
+Commandes utiles:
+   ollama list
+   ollama pull llama3.2
+   ollama run llama3.2
