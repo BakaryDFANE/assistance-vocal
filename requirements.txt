@@ -9,4 +9,5 @@ keyboard
 psutil
 pystray
 pyinstaller
+vosk
 PySide6

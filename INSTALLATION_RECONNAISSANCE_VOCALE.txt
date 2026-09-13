@@ -1,0 +1,56 @@
+Reconnaissance vocale gratuite et illimitee pour BF (Vosk)
+============================================================
+
+Par defaut, BF essaie d'abord Vosk (gratuit, hors ligne, sans limite,
+sans compte, sans carte bancaire). Si aucun modele n'est installe, BF
+utilise automatiquement l'API gratuite de Google en secours (ca marche
+aussi, mais avec une limite de requetes et une dependance a internet).
+
+Pour activer le mode 100% gratuit et hors ligne :
+
+1. Installe le paquet Python (deja dans requirements.txt) :
+   py -3.12 -m pip install vosk
+
+2. Cree un dossier "modeles_vosk" a la racine du projet (a cote de
+   assistant_bf.py) :
+   mkdir modeles_vosk
+
+3. Telecharge les modeles gratuits (licence Apache 2.0) sur le site
+   officiel Vosk : https://alphacephei.com/vosk/models
+
+   - Francais (environ 45 Mo) :
+     vosk-model-small-fr-0.22
+     https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip
+
+   - Anglais (environ 40 Mo) :
+     vosk-model-small-en-us-0.15
+     https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+
+4. Decompresse chaque .zip directement dans "modeles_vosk", de sorte
+   a obtenir cette structure :
+
+   assistance-vocal/
+     modeles_vosk/
+       vosk-model-small-fr-0.22/
+         am/  conf/  graph/  ... (fichiers du modele)
+       vosk-model-small-en-us-0.15/
+         am/  conf/  graph/  ...
+
+5. Relance BF (ou reconstruis le .exe avec build_bf_exe.bat). Les
+   modeles seront automatiquement inclus dans dist\BF si le dossier
+   "modeles_vosk" existe au moment du build (voir BF.spec).
+
+Verification :
+   Regarde %LOCALAPPDATA%\BF\bf.log apres avoir parle a BF. Tu dois
+   voir une ligne "Modele Vosk charge (fr) : ...". Si tu vois plutot
+   "Modele Vosk introuvable", verifie le nom exact du dossier
+   (respecte la casse et les tirets).
+
+Remarques :
+   - Les modeles "small" sont volontairement legers et rapides ; ils
+     sont un peu moins precis que la version complete du modele mais
+     restent tres corrects pour des commandes courtes.
+   - Tu peux ne telecharger que le francais si tu n'as pas besoin de
+     l'anglais : BF utilisera alors Google (gratuit) pour l'anglais.
+   - Ces modeles sont sous licence libre, aucun paiement, aucune
+     inscription, aucune limite d'utilisation.

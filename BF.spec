@@ -3,15 +3,26 @@
 from pathlib import Path
 
 import certifi
+import vosk
 
 
 block_cipher = None
 racine = Path.cwd()
 icone = racine / "assets" / "bf.ico"
+vosk_dossier = Path(vosk.__file__).resolve().parent
+vosk_dlls = [
+    (str(fichier), "vosk")
+    for fichier in vosk_dossier.glob("*.dll")
+]
 
 donnees = []
 if (racine / "assets").exists():
     donnees.append((str(racine / "assets"), "assets"))
+# Modeles Vosk (reconnaissance vocale gratuite hors ligne), s'ils ont ete
+# telecharges - voir INSTALLATION_RECONNAISSANCE_VOCALE.txt. Optionnel : si
+# absent, BF utilise l'API Google gratuite en secours.
+if (racine / "modeles_vosk").exists():
+    donnees.append((str(racine / "modeles_vosk"), "modeles_vosk"))
 # Corrige les erreurs SSL ("CERTIFICATE_VERIFY_FAILED") frequentes une fois
 # l'app compilee : PyInstaller n'embarque pas le magasin de certificats de
 # `certifi` automatiquement, ce qui casse les requetes https (Wikipedia,
@@ -21,7 +32,7 @@ donnees.append((certifi.where(), "certifi"))
 a = Analysis(
     ["assistant_bf.py"],
     pathex=[str(racine)],
-    binaries=[],
+    binaries=vosk_dlls,
     datas=donnees,
     hiddenimports=[
         "PySide6.QtCore",
@@ -39,6 +50,7 @@ a = Analysis(
         "wikipedia",
         "requests",
         "certifi",
+        "vosk",
     ],
     hookspath=[],
     hooksconfig={},
