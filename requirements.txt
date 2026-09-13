@@ -8,3 +8,4 @@ keyboard
 psutil
 pystray
 pyinstaller
+PySide6

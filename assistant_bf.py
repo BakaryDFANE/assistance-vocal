@@ -3,17 +3,31 @@ import queue
 import re
 import sys
 import threading
-import tkinter as tk
 import unicodedata
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from tkinter import scrolledtext
 
 import pyttsx3
 import requests
 import speech_recognition as sr
 import wikipedia
+from PySide6.QtCore import QTimer, Qt, Signal, QUrl
+from PySide6.QtGui import QAction, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPushButton,
+    QStyle,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 try:
     from PIL import Image, ImageDraw, ImageTk
@@ -33,8 +47,18 @@ NOMS_ACTIVATION = ["bf", "b f", "be ef", "bef"]
 MODELE_OLLAMA = "llama3.2"
 OLLAMA_URL = "http://localhost:11434"
 DEMARRER_EN_ARRIERE_PLAN = True
+LANGUES_RECONNAISSANCE = [("fr-FR", "fr"), ("en-US", "en")]
+
+
+class FenetreBF(QMainWindow):
+    fermeture_demandee = Signal()
+
+    def closeEvent(self, event):
+        self.fermeture_demandee.emit()
+        event.ignore()
 
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+JOURS_ANGLAIS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MOIS = [
     "janvier",
     "fevrier",
@@ -48,6 +72,10 @@ MOIS = [
     "octobre",
     "novembre",
     "decembre",
+]
+MOIS_ANGLAIS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
 ]
 
 wikipedia.set_lang("fr")
@@ -69,9 +97,11 @@ def normaliser_texte(texte):
 class AssistantBF:
     def __init__(self, fenetre):
         self.fenetre = fenetre
-        self.fenetre.title("BF - Assistant vocal")
-        self.fenetre.geometry("900x600")
-        self.fenetre.minsize(750, 500)
+        self.application = QApplication.instance()
+        self.fenetre.setWindowTitle("BF - Assistant vocal")
+        self.fenetre.resize(1080, 700)
+        self.fenetre.setMinimumSize(820, 560)
+        self.fenetre.fermeture_demandee.connect(self.masquer_fenetre)
 
         self.moteur = pyttsx3.init()
         self.recognizer = sr.Recognizer()
@@ -82,103 +112,122 @@ class AssistantBF:
         self.icone_barre_systeme = None
         self.thread_barre_systeme = None
         self.application_en_fermeture = False
+        self.langue = "fr"
 
         self.choisir_voix_masculine()
         self.creer_interface()
-        self.fenetre.protocol("WM_DELETE_WINDOW", self.masquer_fenetre)
-        self.fenetre.bind("<Control-b>", self.raccourci_ctrl_b)
-        self.fenetre.bind("<Control-B>", self.raccourci_ctrl_b)
         self.traiter_actions_interface()
         self.creer_icone_barre_systeme()
         self.parler("BF est lance. Dis BF pour me parler.")
-        self.fenetre.after(500, self.demarrer_automatiquement)
+        QTimer.singleShot(500, self.demarrer_automatiquement)
 
     def demarrer_automatiquement(self):
         if DEMARRER_EN_ARRIERE_PLAN:
-            self.fenetre.withdraw()
+            self.fenetre.hide()
 
         if not self.ecoute_active:
             self.basculer_ecoute()
 
     def creer_interface(self):
-        self.fenetre.columnconfigure(0, weight=2)
-        self.fenetre.columnconfigure(1, weight=1)
-        self.fenetre.rowconfigure(1, weight=1)
-
-        titre = tk.Label(
+        self.action_ctrl_b = QAction(
+            self.fenetre.style().standardIcon(QStyle.SP_MediaPlay),
+            "Activer l'ecoute",
             self.fenetre,
-            text="BF - Assistant vocal",
-            font=("Segoe UI", 20, "bold"),
-            bg="#101820",
-            fg="white",
-            pady=12,
         )
-        titre.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self.fenetre.addAction(self.action_ctrl_b)
+        self.action_ctrl_b.setShortcut("Ctrl+B")
+        self.action_ctrl_b.triggered.connect(self.raccourci_ctrl_b)
 
-        self.conversation = scrolledtext.ScrolledText(
-            self.fenetre,
-            font=("Segoe UI", 11),
-            wrap=tk.WORD,
-            state="disabled",
+        contenu = QWidget()
+        principal = QVBoxLayout(contenu)
+        principal.setContentsMargins(24, 22, 24, 18)
+        principal.setSpacing(16)
+
+        entete = QHBoxLayout()
+        titre = QLabel("BF")
+        titre.setObjectName("titre")
+        sous_titre = QLabel("Assistant vocal personnel")
+        sous_titre.setObjectName("sousTitre")
+        entete.addWidget(titre)
+        entete.addWidget(sous_titre)
+        entete.addStretch()
+        principal.addLayout(entete)
+
+        zone = QHBoxLayout()
+        zone.setSpacing(16)
+        self.conversation = QTextEdit()
+        self.conversation.setReadOnly(True)
+        self.conversation.setPlaceholderText("La conversation apparaitra ici...")
+        zone.addWidget(self.conversation, 1)
+
+        self.visualiseur = QWebEngineView()
+        self.visualiseur.setMinimumWidth(440)
+        self.visualiseur.setUrl(QUrl.fromLocalFile(str(chemin_ressource("assets/visualiseur_bf.html"))))
+        zone.addWidget(self.visualiseur, 2)
+
+        panneau_image = QFrame()
+        panneau_image.setObjectName("panneauImage")
+        panneau_layout = QVBoxLayout(panneau_image)
+        panneau_layout.setContentsMargins(18, 18, 18, 18)
+        etiquette_image = QLabel("APERÇU")
+        etiquette_image.setObjectName("etiquetteSection")
+        self.image_label = QLabel("Les images apparaitront ici")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setWordWrap(True)
+        panneau_layout.addWidget(etiquette_image)
+        panneau_layout.addWidget(self.image_label, 1)
+        zone.addWidget(panneau_image, 1)
+        principal.addLayout(zone, 1)
+
+        barre_bas = QHBoxLayout()
+        self.champ_texte = QLineEdit()
+        self.champ_texte.setPlaceholderText("Ecris une commande a BF...")
+        self.champ_texte.returnPressed.connect(self.envoyer_message_texte)
+        barre_bas.addWidget(self.champ_texte, 1)
+
+        bouton_envoyer = QPushButton("Envoyer")
+        bouton_envoyer.setIcon(self.fenetre.style().standardIcon(QStyle.SP_ArrowRight))
+        bouton_envoyer.clicked.connect(self.envoyer_message_texte)
+        barre_bas.addWidget(bouton_envoyer)
+
+        self.bouton_ecoute = QPushButton("Demarrer l'ecoute")
+        self.bouton_ecoute.clicked.connect(self.basculer_ecoute)
+        barre_bas.addWidget(self.bouton_ecoute)
+        principal.addLayout(barre_bas)
+
+        self.statut = QLabel("Pret - Ctrl+B pour parler")
+        self.statut.setObjectName("statut")
+        principal.addWidget(self.statut)
+
+        self.fenetre.setCentralWidget(contenu)
+        self.fenetre.setStyleSheet(
+            """
+            QMainWindow, QWidget { background: #101820; color: #f7f1df; }
+            #titre { color: #f7f1df; font-size: 30px; font-weight: 700; }
+            #sousTitre { color: #a8b3b8; font-size: 15px; padding-top: 8px; }
+            QTextEdit, QLineEdit { background: #17242b; border: 1px solid #2c4149; border-radius: 10px; padding: 12px; color: #f7f1df; font-size: 14px; }
+            #panneauImage { background: #17242b; border: 1px solid #2c4149; border-radius: 10px; }
+            #etiquetteSection { color: #d8b15f; font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+            QPushButton { background: #0f766e; border: 0; border-radius: 8px; padding: 11px 16px; color: white; font-weight: 600; }
+            QPushButton:hover { background: #14b8a6; }
+            #statut { background: #17242b; border-radius: 6px; padding: 8px 12px; color: #a8b3b8; }
+            """
         )
-        self.conversation.grid(row=1, column=0, sticky="nsew", padx=12, pady=12)
-
-        panneau_image = tk.Frame(self.fenetre, bg="#f2f2f2")
-        panneau_image.grid(row=1, column=1, sticky="nsew", padx=(0, 12), pady=12)
-        panneau_image.rowconfigure(0, weight=1)
-        panneau_image.columnconfigure(0, weight=1)
-
-        self.image_label = tk.Label(
-            panneau_image,
-            text="Les images apparaitront ici",
-            font=("Segoe UI", 12),
-            bg="#f2f2f2",
-            fg="#333333",
-            wraplength=250,
-        )
-        self.image_label.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
-
-        barre_bas = tk.Frame(self.fenetre)
-        barre_bas.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 12))
-        barre_bas.columnconfigure(0, weight=1)
-
-        self.champ_texte = tk.Entry(barre_bas, font=("Segoe UI", 12))
-        self.champ_texte.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        self.champ_texte.bind("<Return>", self.envoyer_message_texte)
-
-        bouton_envoyer = tk.Button(
-            barre_bas,
-            text="Envoyer",
-            command=self.envoyer_message_texte,
-            font=("Segoe UI", 11),
-        )
-        bouton_envoyer.grid(row=0, column=1, padx=(0, 8))
-
-        self.bouton_ecoute = tk.Button(
-            barre_bas,
-            text="Demarrer l'ecoute",
-            command=self.basculer_ecoute,
-            font=("Segoe UI", 11),
-        )
-        self.bouton_ecoute.grid(row=0, column=2)
-
-        self.statut = tk.Label(
-            self.fenetre,
-            text="Pret - Ctrl+B pour parler",
-            anchor="w",
-            font=("Segoe UI", 10),
-            bg="#e8e8e8",
-        )
-        self.statut.grid(row=3, column=0, columnspan=2, sticky="ew")
 
     def choisir_voix_masculine(self):
+        self.configurer_voix("fr")
+
+    def configurer_voix(self, langue):
         voix_disponibles = self.moteur.getProperty("voices")
-        mots_voix_masculine = ["david", "mark", "male", "homme", "paul"]
+        mots_voix = {
+            "fr": ["david", "paul", "homme", "français", "french"],
+            "en": ["david", "mark", "male", "english", "anglais"],
+        }
 
         for voix in voix_disponibles:
             nom_voix = f"{voix.name} {voix.id}".lower()
 
-            for mot in mots_voix_masculine:
+            for mot in mots_voix.get(langue, mots_voix["fr"]):
                 if mot in nom_voix:
                     self.moteur.setProperty("voice", voix.id)
                     self.moteur.setProperty("rate", 170)
@@ -194,36 +243,55 @@ class AssistantBF:
     def basculer_ecoute(self):
         if self.ecoute_active:
             self.ecoute_active = False
-            self.bouton_ecoute.config(text="Demarrer l'ecoute")
-            self.statut.config(text="Ecoute arretee - Ctrl+B pour parler")
+            self.bouton_ecoute.setText("Demarrer l'ecoute")
+            self.statut.setText("Ecoute arretee - Ctrl+B pour parler")
             return
 
         self.ecoute_active = True
-        self.bouton_ecoute.config(text="Arreter l'ecoute")
+        self.bouton_ecoute.setText("Arreter l'ecoute")
         self.thread_ecoute = threading.Thread(target=self.boucle_ecoute, daemon=True)
         self.thread_ecoute.start()
 
     def ajouter_message(self, auteur, texte):
         self.afficher_fenetre()
-        self.conversation.config(state="normal")
-        self.conversation.insert(tk.END, f"{auteur} : {texte}\n\n")
-        self.conversation.config(state="disabled")
-        self.conversation.see(tk.END)
+        self.conversation.append(f"<b>{auteur}</b> : {texte}")
+        self.conversation.verticalScrollBar().setValue(
+            self.conversation.verticalScrollBar().maximum()
+        )
 
     def afficher_fenetre(self):
-        self.fenetre.deiconify()
+        self.fenetre.showNormal()
         self.fenetre.lift()
-        self.fenetre.attributes("-topmost", True)
-        self.fenetre.after(500, lambda: self.fenetre.attributes("-topmost", False))
+        self.fenetre.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.fenetre.show()
+        QTimer.singleShot(
+            500,
+            lambda: self.fenetre.setWindowFlag(Qt.WindowStaysOnTopHint, False),
+        )
 
     def parler(self, texte):
         self.actions_interface.put(("message", "BF", texte))
+        self.actions_interface.put(("visualiseur", "responding"))
         print("BF :", texte)
+        self.configurer_voix(self.langue)
         self.moteur.say(texte)
         self.moteur.runAndWait()
 
     def changer_statut(self, texte):
         self.actions_interface.put(("statut", texte))
+        if "ecoute" in texte.lower() or "ecoute" in normaliser_texte(texte):
+            etat = "listening"
+        elif "traite" in texte.lower() or "traitement" in normaliser_texte(texte):
+            etat = "processing"
+        else:
+            etat = "idle"
+        self.actions_interface.put(("visualiseur", etat))
+
+    def mettre_a_jour_visualiseur(self, etat):
+        if self.visualiseur.page().isLoading():
+            QTimer.singleShot(150, lambda: self.mettre_a_jour_visualiseur(etat))
+            return
+        self.visualiseur.page().runJavaScript(f"window.bfSetState({etat!r});")
 
     def traiter_actions_interface(self):
         while not self.actions_interface.empty():
@@ -233,13 +301,16 @@ class AssistantBF:
                 self.ajouter_message(action[1], action[2])
 
             elif action[0] == "statut":
-                self.statut.config(text=action[1])
+                self.statut.setText(action[1])
+
+            elif action[0] == "visualiseur":
+                self.mettre_a_jour_visualiseur(action[1])
 
             elif action[0] == "afficher":
                 self.afficher_fenetre()
 
             elif action[0] == "bouton":
-                self.bouton_ecoute.config(text=action[1])
+                self.bouton_ecoute.setText(action[1])
 
             elif action[0] == "image":
                 self.afficher_image(action[1])
@@ -251,7 +322,7 @@ class AssistantBF:
                 self.quitter_application()
 
         if not self.application_en_fermeture:
-            self.fenetre.after(100, self.traiter_actions_interface)
+            QTimer.singleShot(100, self.traiter_actions_interface)
 
     def creer_image_icone(self):
         logo = chemin_ressource("assets/bf.png")
@@ -296,7 +367,7 @@ class AssistantBF:
         self.actions_interface.put(("basculer_ecoute",))
 
     def masquer_fenetre(self):
-        self.fenetre.withdraw()
+        self.fenetre.hide()
 
     def quitter_depuis_barre_systeme(self, icon=None, item=None):
         self.actions_interface.put(("quitter",))
@@ -308,24 +379,26 @@ class AssistantBF:
         if self.icone_barre_systeme is not None:
             self.icone_barre_systeme.stop()
 
-        self.fenetre.destroy()
+        self.fenetre.close()
+        self.application.quit()
 
     def afficher_image(self, image_bytes):
-        if Image is None or ImageTk is None:
-            self.image_label.config(
-                text="Installe Pillow pour afficher les images:\npip install pillow",
-                image="",
-            )
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(image_bytes):
+            self.image_label.setText("Impossible d'afficher cette image.")
             return
 
-        image = Image.open(io.BytesIO(image_bytes))
-        image.thumbnail((300, 380))
-        self.image_actuelle = ImageTk.PhotoImage(image)
-        self.image_label.config(image=self.image_actuelle, text="")
+        self.image_actuelle = pixmap.scaled(
+            360,
+            420,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        self.image_label.setPixmap(self.image_actuelle)
 
     def envoyer_message_texte(self, event=None):
-        commande = self.champ_texte.get().strip().lower()
-        self.champ_texte.delete(0, tk.END)
+        commande = self.champ_texte.text().strip().lower()
+        self.champ_texte.clear()
 
         if not commande:
             return
@@ -339,19 +412,39 @@ class AssistantBF:
             self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
             audio = self.recognizer.listen(source, phrase_time_limit=7)
 
-        try:
-            texte = self.recognizer.recognize_google(audio, language="fr-FR")
-            texte = texte.lower()
-            print("Vous :", texte)
+        resultats = []
+        for code_langue, langue in LANGUES_RECONNAISSANCE:
+            try:
+                resultat = self.recognizer.recognize_google(
+                    audio,
+                    language=code_langue,
+                    show_all=True,
+                )
+                if not resultat or not resultat.get("alternative"):
+                    continue
+
+                meilleure_alternative = resultat["alternative"][0]
+                confiance = meilleure_alternative.get("confidence", 0)
+                resultats.append(
+                    (
+                        confiance,
+                        langue,
+                        meilleure_alternative["transcript"].lower(),
+                    )
+                )
+            except (sr.UnknownValueError, sr.RequestError):
+                continue
+
+        if resultats:
+            _, self.langue, texte = max(resultats, key=lambda resultat: resultat[0])
+            self.configurer_voix(self.langue)
+            wikipedia.set_lang(self.langue)
+            print(f"Vous ({self.langue}) :", texte)
             return texte
 
-        except sr.UnknownValueError:
+        if not resultats:
             self.changer_statut("Je n'ai pas compris")
-            return ""
-
-        except sr.RequestError:
-            self.parler("Je n'arrive pas a utiliser la reconnaissance vocale.")
-            return ""
+        return ""
 
     def boucle_ecoute(self):
         self.changer_statut("Ecoute active")
@@ -417,6 +510,20 @@ class AssistantBF:
             "qui est",
             "stop",
             "arrete",
+            "time",
+            "date",
+            "day",
+            "today",
+            "search",
+            "look up",
+            "picture",
+            "photo",
+            "show me",
+            "explain",
+            "what is",
+            "who is",
+            "stop",
+            "quit",
         ]
 
         for mot in mots_commandes:
@@ -468,40 +575,72 @@ class AssistantBF:
 
     def executer_commande(self, commande):
         self.changer_statut("Je traite la demande...")
+        commande_normalisee = normaliser_texte(commande)
 
-        if self.commande_demande_heure(commande):
+        if self.commande_demande_heure(commande) or any(
+            expression in commande_normalisee
+            for expression in ["what time is it", "whats the time", "tell me the time"]
+        ):
             heure = datetime.now().strftime("%H:%M")
-            self.parler(f"Il est {heure}")
+            self.parler(
+                f"Il est {heure}" if self.langue == "fr" else f"It is {heure}"
+            )
 
-        elif self.commande_demande_jour(commande):
+        elif self.commande_demande_jour(commande) or any(
+            expression in commande_normalisee
+            for expression in ["what day is it", "which day is it", "what day"]
+        ):
             maintenant = datetime.now()
             jour_semaine = JOURS[maintenant.weekday()]
             mois_annee = MOIS[maintenant.month - 1]
+            if self.langue == "fr":
+                self.parler(
+                    f"Nous sommes {jour_semaine} {maintenant.day} {mois_annee} {maintenant.year}."
+                )
+            else:
+                self.parler(
+                    f"Today is {JOURS_ANGLAIS[maintenant.weekday()]}, "
+                    f"{MOIS_ANGLAIS[maintenant.month - 1]} {maintenant.day}, "
+                    f"{maintenant.year}."
+                )
+
+        elif self.commande_demande_date(commande) or "what is the date" in commande_normalisee:
+            date = datetime.now().strftime("%d/%m/%Y")
             self.parler(
-                f"Nous sommes {jour_semaine} {maintenant.day} {mois_annee} {maintenant.year}."
+                f"Nous sommes le {date}" if self.langue == "fr" else f"The date is {date}"
             )
 
-        elif self.commande_demande_date(commande):
-            date = datetime.now().strftime("%d/%m/%Y")
-            self.parler(f"Nous sommes le {date}")
-
-        elif "image" in commande or "photo" in commande or "montre" in commande:
+        elif any(mot in commande_normalisee for mot in ["image", "photo", "picture", "show me"]):
             recherche = self.nettoyer_commande(
                 commande,
-                ["cherche", "recherche", "image", "photo", "montre", "de", "d'"],
+                [
+                    "cherche", "recherche", "image", "photo", "montre", "de", "d'",
+                    "search", "look up", "picture", "show me", "of", "a", "an",
+                ],
             )
             self.chercher_image(recherche)
 
-        elif "cherche" in commande or "recherche" in commande:
-            recherche = self.nettoyer_commande(commande, ["cherche", "recherche"])
+        elif any(mot in commande_normalisee for mot in ["cherche", "recherche", "search", "look up"]):
+            recherche = self.nettoyer_commande(
+                commande,
+                ["cherche", "recherche", "search", "look up"],
+            )
             self.chercher_google(recherche)
 
-        elif "explique" in commande or "c'est quoi" in commande or "qui est" in commande:
-            question = self.nettoyer_commande(commande, ["explique", "c'est quoi", "qui est"])
+        elif any(
+            expression in commande_normalisee
+            for expression in ["explique", "c est quoi", "qui est", "explain", "what is", "who is"]
+        ):
+            question = self.nettoyer_commande(
+                commande,
+                ["explique", "c'est quoi", "qui est", "explain", "what is", "who is"],
+            )
             self.repondre_question(question)
 
-        elif "stop" in commande or "arrete" in commande or "arrête" in commande:
-            self.parler("D'accord, je m'arrete.")
+        elif any(mot in commande_normalisee for mot in ["stop", "arrete", "quit"]):
+            self.parler(
+                "D'accord, je m'arrete." if self.langue == "fr" else "Okay, I will stop listening."
+            )
             return False
 
         else:
@@ -550,7 +689,7 @@ class AssistantBF:
             webbrowser.open(f"https://www.google.com/search?tbm=isch&q={recherche}")
 
     def afficher_image_wikipedia(self, recherche):
-        if Image is None or ImageTk is None:
+        if Image is None:
             self.actions_interface.put(
                 ("message", "BF", "Installe Pillow pour afficher les images dans la fenetre.")
             )
@@ -605,13 +744,14 @@ class AssistantBF:
 
     def demander_ollama(self, question):
         try:
+            langue_reponse = "francais" if self.langue == "fr" else "anglais"
             reponse = requests.post(
                 f"{OLLAMA_URL}/api/generate",
                 json={
                     "model": MODELE_OLLAMA,
                     "prompt": (
                         "Tu es BF, un assistant vocal personnel. "
-                        "Reponds en francais, clairement, avec un style naturel. "
+                        f"Reponds en {langue_reponse}, clairement, avec un style naturel. "
                         "Si la question demande une explication, donne une reponse detaillee mais facile a comprendre.\n"
                         f"Question: {question}"
                     ),
@@ -627,6 +767,9 @@ class AssistantBF:
 
 
 if __name__ == "__main__":
-    racine = tk.Tk()
+    application = QApplication(sys.argv)
+    application.setApplicationName("BF")
+    racine = FenetreBF()
     app = AssistantBF(racine)
-    racine.mainloop()
+    racine.show()
+    sys.exit(application.exec())

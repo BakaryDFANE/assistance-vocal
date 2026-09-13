@@ -14,6 +14,10 @@ a = Analysis(
     binaries=[],
     datas=[(str(racine / "assets"), "assets")] if (racine / "assets").exists() else [],
     hiddenimports=[
+        "PySide6.QtCore",
+        "PySide6.QtGui",
+        "PySide6.QtWidgets",
+        "PySide6.QtWebEngineWidgets",
         "pystray",
         "PIL.Image",
         "PIL.ImageDraw",
