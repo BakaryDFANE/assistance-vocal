@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -15,9 +14,7 @@ class ParametresBF:
     microphone_index: int | None = None
     voix_debit: int = 170
     voix_volume: float = 1.0
-    modele_ia: str = "llama3.2"
-    ollama_url: str = "http://localhost:11434"
-    raccourci_ecoute: str = "Ctrl+B"
+    raccourci_ecoute: str = ""
     demarrer_avec_windows: bool = False
     demarrer_en_arriere_plan: bool = False
     commandes_sans_mot_activation: bool = False
@@ -52,8 +49,6 @@ class ParametresBF:
 
 
 def _depuis_env(parametres: ParametresBF) -> ParametresBF:
-    parametres.modele_ia = os.environ.get("BF_OLLAMA_MODEL", parametres.modele_ia)
-    parametres.ollama_url = os.environ.get("BF_OLLAMA_URL", parametres.ollama_url)
     return parametres
 
 

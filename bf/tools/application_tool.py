@@ -20,6 +20,15 @@ ALIAS_APPS = {
     "bloc notes": ["notepad"],
     "terminal": ["wt", "cmd"],
     "calculatrice": ["calc"],
+    "chrome": ["chrome"],
+    "google chrome": ["chrome"],
+    "edge": ["msedge"],
+    "microsoft edge": ["msedge"],
+    "firefox": ["firefox"],
+    "word": ["winword"],
+    "excel": ["excel"],
+    "powerpoint": ["powerpnt"],
+    "spotify": ["spotify"],
 }
 
 
@@ -33,8 +42,35 @@ def _lancer(commande: str) -> bool:
             os.startfile(commande)  # type: ignore[attr-defined]
             return True
         except OSError:
-            return False
+            pass
+        for raccourci in _raccourcis_menu(commande):
+            try:
+                os.startfile(raccourci)  # type: ignore[attr-defined]
+                return True
+            except OSError:
+                continue
     return False
+
+
+def _raccourcis_menu(nom: str) -> list[Path]:
+    """Trouve une application installée par son nom dans le menu Démarrer."""
+    racines = [
+        Path(os.environ.get("PROGRAMDATA", "")) / "Microsoft/Windows/Start Menu/Programs",
+        Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs",
+    ]
+    cible = nom.casefold().replace(".exe", "").replace(".lnk", "").strip()
+    trouves: list[Path] = []
+    for racine in racines:
+        if not racine.is_dir():
+            continue
+        try:
+            candidats = racine.rglob("*.lnk")
+        except OSError:
+            continue
+        for chemin in candidats:
+            if chemin.stem.casefold() == cible:
+                trouves.append(chemin)
+    return trouves
 
 
 def creer_outil_applications() -> Outil:

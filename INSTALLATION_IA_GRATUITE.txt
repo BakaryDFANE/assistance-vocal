@@ -1,26 +1,22 @@
-IA gratuite pour BF avec Ollama
+Recherche et voix gratuites pour BF
 
-1. Installe Ollama pour Windows:
-   https://ollama.com/download/windows
+BF n'a besoin d'aucun serveur d'IA local. Les questions sont recherchees sur
+Google, une reponse Wikipedia est lue a voix haute quand elle est disponible,
+et les resultats Google sont ouverts dans le navigateur.
 
-2. Ferme et rouvre le terminal.
+1. Installe les dependances:
+   py -3.12 -m pip install -r requirements.txt
 
-3. Verifie que Ollama marche:
-   ollama --version
+2. Verifie que le microphone et une voix francaise Windows sont disponibles.
 
-4. Installe le modele conseille pour commencer:
-   ollama pull llama3.2
-
-5. Teste le modele:
-   ollama run llama3.2
-
-6. Lance BF:
+3. Lance BF:
    py -3.12 assistant_bf.py
 
-Si BF dit "Ollama n'est pas disponible", ouvre Ollama depuis le menu Demarrer,
-puis relance BF. Ollama doit tourner en arriere-plan sur http://localhost:11434.
+Exemples de commandes vocales:
+   BF, quelle est la capitale de la France ?
+   BF, cherche les horaires du train
+   BF, ouvre Chrome
+   BF, ouvre Spotify
 
-Commandes utiles:
-   ollama list
-   ollama pull llama3.2
-   ollama run llama3.2
+Pour ouvrir une application, BF accepte les logiciels connus, les executables
+accessibles dans le PATH et les raccourcis du menu Demarrer de Windows.

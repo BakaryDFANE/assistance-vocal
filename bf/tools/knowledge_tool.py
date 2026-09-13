@@ -1,33 +1,45 @@
 from __future__ import annotations
 
+import webbrowser
+from urllib.parse import quote_plus
+
 import wikipedia
 
-from bf.ai.ollama import ClientOllama
 from bf.security.permissions import NiveauPermission
 from bf.tools.base import Outil, ResultatOutil
 
 
-def creer_outil_connaissance(client: ClientOllama) -> Outil:
+def creer_outil_connaissance() -> Outil:
     def executer(question: str, langue: str = "fr") -> ResultatOutil:
         if not question:
             return ResultatOutil(False, "Pose-moi ta question.", erreur="empty")
+        webbrowser.open(f"https://www.google.com/search?q={quote_plus(question)}")
         wikipedia.set_lang(langue)
-        reponse = client.demander(question, langue)
-        if reponse:
-            return ResultatOutil(True, reponse, {"source": "ollama"})
         try:
             resume = wikipedia.summary(question, sentences=3)
-            return ResultatOutil(True, resume, {"source": "wikipedia"})
+            return ResultatOutil(True, resume, {"source": "google+wikipedia"})
         except wikipedia.exceptions.DisambiguationError:
-            return ResultatOutil(False, "Plusieurs résultats possibles. Sois plus précis.", erreur="disambiguation")
+            return ResultatOutil(
+                True,
+                f"Plusieurs résultats existent. J'ai ouvert Google pour « {question} ».",
+                {"source": "google"},
+            )
         except wikipedia.exceptions.PageError:
-            return ResultatOutil(False, "Pas de réponse Wikipedia.", erreur="page")
+            return ResultatOutil(
+                True,
+                f"Je n'ai pas trouvé cette page dans Wikipedia. J'ai ouvert Google pour « {question} ».",
+                {"source": "google"},
+            )
         except Exception as erreur:  # noqa: BLE001
-            return ResultatOutil(False, "Recherche impossible.", erreur=str(erreur))
+            return ResultatOutil(
+                True,
+                f"J'ai ouvert Google pour rechercher « {question} ». Lis les résultats affichés.",
+                {"source": "google"},
+            )
 
     return Outil(
         nom="knowledge",
-        description="Répond via l'IA locale Ollama, avec repli Wikipedia.",
+        description="Recherche une réponse dans Wikipedia et ouvre Google pour compléter la recherche.",
         permission=NiveauPermission.SAFE,
         parametres={"question": "texte", "langue": "fr|en"},
         executer=executer,

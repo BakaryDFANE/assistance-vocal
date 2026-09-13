@@ -8,7 +8,6 @@ from typing import Any
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from bf.ai.ollama import ClientOllama
 from bf.ai.planner import PlanTache, Planificateur, StatutEtape
 from bf.computer.screen import creer_outil_ecran
 from bf.computer.startup import appliquer_demarrage_windows
@@ -57,7 +56,6 @@ class RuntimeBF:
         self.tts = SyntheseVocale(parametres)
         self.wake = DetecteurWakeWord(parametres)
         self.planificateur = Planificateur()
-        self.ollama = ClientOllama(parametres)
         self.outils = self._construire_outils()
 
         self.fenetre = FenetrePrincipale(parametres)
@@ -81,7 +79,7 @@ class RuntimeBF:
         registre.enregistrer(creer_outil_datetime())
         registre.enregistrer(creer_outil_web())
         registre.enregistrer(creer_outil_images())
-        registre.enregistrer(creer_outil_connaissance(self.ollama))
+        registre.enregistrer(creer_outil_connaissance())
         registre.enregistrer(creer_outil_applications())
         registre.enregistrer(
             creer_outil_projet(self.parametres.racines_autorisees, self.parametres.projet_actif)
@@ -162,7 +160,6 @@ class RuntimeBF:
         self.wake = DetecteurWakeWord(parametres)
         self.stt.parametres = parametres
         self.tts.parametres = parametres
-        self.ollama.parametres = parametres
         self.outils = self._construire_outils()
         self.parler("Paramètres enregistrés.")
 

@@ -37,8 +37,6 @@ class PageParametres(QWidget):
         self.volume.setRange(0, 1)
         self.volume.setSingleStep(0.05)
         self.volume.setValue(parametres.voix_volume)
-        self.modele = QLineEdit(parametres.modele_ia)
-        self.ollama = QLineEdit(parametres.ollama_url)
         self.raccourci = QLineEdit(parametres.raccourci_ecoute)
         self.autostart = QCheckBox("Démarrer avec Windows")
         self.autostart.setChecked(parametres.demarrer_avec_windows)
@@ -68,9 +66,7 @@ class PageParametres(QWidget):
         form.addRow("Index microphone (-1 = défaut)", self.micro)
         form.addRow("Débit voix", self.debit)
         form.addRow("Volume", self.volume)
-        form.addRow("Modèle IA (Ollama)", self.modele)
-        form.addRow("URL Ollama", self.ollama)
-        form.addRow("Raccourci", self.raccourci)
+        form.addRow("Raccourci (vide = désactivé)", self.raccourci)
         form.addRow(self.autostart)
         form.addRow(self.arriere)
         form.addRow(self.sans_wake)
@@ -101,9 +97,7 @@ class PageParametres(QWidget):
         p.microphone_index = None if self.micro.value() < 0 else self.micro.value()
         p.voix_debit = self.debit.value()
         p.voix_volume = self.volume.value()
-        p.modele_ia = self.modele.text().strip() or "llama3.2"
-        p.ollama_url = self.ollama.text().strip() or "http://localhost:11434"
-        p.raccourci_ecoute = self.raccourci.text().strip() or "Ctrl+B"
+        p.raccourci_ecoute = self.raccourci.text().strip()
         p.demarrer_avec_windows = self.autostart.isChecked()
         p.demarrer_en_arriere_plan = self.arriere.isChecked()
         p.commandes_sans_mot_activation = self.sans_wake.isChecked()

@@ -2,8 +2,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import keyboard
-
 
 DOSSIER_PROJET = Path(__file__).resolve().parent
 ASSISTANT = DOSSIER_PROJET / "assistant_bf.py"
@@ -22,9 +20,8 @@ def ouvrir_bf():
     processus_bf = subprocess.Popen([sys.executable, str(ASSISTANT)])
 
 
-print("Lanceur BF actif.")
-print("Appuie sur Ctrl+Shift+B pour ouvrir BF.")
-print("Garde cette fenetre ouverte, ou mets ce lanceur au demarrage de Windows.")
-
-keyboard.add_hotkey("ctrl+shift+b", ouvrir_bf)
-keyboard.wait()
+if __name__ == "__main__":
+    print("Lanceur BF actif.")
+    print("Ouvre BF au lancement du script.")
+    ouvrir_bf()
+    input("Appuie sur Entrée pour fermer ce lanceur.\n")

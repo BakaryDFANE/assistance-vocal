@@ -48,7 +48,9 @@ class FenetrePrincipale(QMainWindow):
 
     def _construire(self) -> None:
         action = QAction("Activer l'écoute", self)
-        action.setShortcut(self.parametres.raccourci_ecoute)
+        raccourci = self.parametres.raccourci_ecoute.strip()
+        if raccourci:
+            action.setShortcut(raccourci)
         action.triggered.connect(self.ecoute_demandee.emit)
         self.addAction(action)
 

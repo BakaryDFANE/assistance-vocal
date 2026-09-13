@@ -25,8 +25,8 @@ if (racine / "modeles_vosk").exists():
     donnees.append((str(racine / "modeles_vosk"), "modeles_vosk"))
 # Corrige les erreurs SSL ("CERTIFICATE_VERIFY_FAILED") frequentes une fois
 # l'app compilee : PyInstaller n'embarque pas le magasin de certificats de
-# `certifi` automatiquement, ce qui casse les requetes https (Wikipedia,
-# Ollama, Google) uniquement dans le .exe, pas en `python assistant_bf.py`.
+# `certifi` automatiquement, ce qui casse les requetes https (Wikipedia et
+# Google) uniquement dans le .exe, pas en `python assistant_bf.py`.
 donnees.append((certifi.where(), "certifi"))
 
 a = Analysis(
@@ -48,7 +48,6 @@ a = Analysis(
         "pyttsx3.drivers",
         "pyttsx3.drivers.sapi5",
         "wikipedia",
-        "requests",
         "certifi",
         "vosk",
     ],
