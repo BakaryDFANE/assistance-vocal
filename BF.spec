@@ -2,17 +2,27 @@
 
 from pathlib import Path
 
+import certifi
+
 
 block_cipher = None
 racine = Path.cwd()
 icone = racine / "assets" / "bf.ico"
 
+donnees = []
+if (racine / "assets").exists():
+    donnees.append((str(racine / "assets"), "assets"))
+# Corrige les erreurs SSL ("CERTIFICATE_VERIFY_FAILED") frequentes une fois
+# l'app compilee : PyInstaller n'embarque pas le magasin de certificats de
+# `certifi` automatiquement, ce qui casse les requetes https (Wikipedia,
+# Ollama, Google) uniquement dans le .exe, pas en `python assistant_bf.py`.
+donnees.append((certifi.where(), "certifi"))
 
 a = Analysis(
     ["assistant_bf.py"],
     pathex=[str(racine)],
     binaries=[],
-    datas=[(str(racine / "assets"), "assets")] if (racine / "assets").exists() else [],
+    datas=donnees,
     hiddenimports=[
         "PySide6.QtCore",
         "PySide6.QtGui",
@@ -24,8 +34,11 @@ a = Analysis(
         "PIL.ImageTk",
         "speech_recognition",
         "pyttsx3",
+        "pyttsx3.drivers",
+        "pyttsx3.drivers.sapi5",
         "wikipedia",
         "requests",
+        "certifi",
     ],
     hookspath=[],
     hooksconfig={},

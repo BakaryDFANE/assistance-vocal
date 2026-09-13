@@ -1,4 +1,6 @@
 import io
+import logging
+import os
 import queue
 import re
 import sys
@@ -7,6 +9,29 @@ import unicodedata
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+
+# --- Correctif exe : en mode "fenetre" (console=False dans BF.spec), Windows/
+# PyInstaller ne fournit pas de sys.stdout/sys.stderr valides. Le moindre
+# print() fait alors planter l'appli (AttributeError: 'NoneType' object has no
+# attribute 'write'). On redirige vers un fichier log AVANT tout print/import
+# qui pourrait en emettre.
+if getattr(sys, "frozen", False):
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+    # --- Correctif SSL exe : PyInstaller n'embarque pas toujours les
+    # certificats racine utilises par `requests`/`certifi`. Sans ca, les
+    # appels a Wikipedia/Ollama/Google echouent en silence dans l'exe alors
+    # qu'ils marchent en `python assistant_bf.py`.
+    try:
+        cacert = Path(sys._MEIPASS) / "certifi" / "cacert.pem"
+        if cacert.exists():
+            os.environ.setdefault("SSL_CERT_FILE", str(cacert))
+            os.environ.setdefault("REQUESTS_CA_BUNDLE", str(cacert))
+    except Exception:
+        pass
 
 import pyttsx3
 import requests
@@ -50,6 +75,45 @@ DEMARRER_EN_ARRIERE_PLAN = True
 LANGUES_RECONNAISSANCE = [("fr-FR", "fr"), ("en-US", "en")]
 
 
+class InstanceUnique:
+    """Empeche de lancer BF deux fois en meme temps (ce qui arrivait via le
+    lanceur Ctrl+Shift+B qui demarrait un 2e processus par-dessus celui deja
+    ouvert en arriere-plan : deux ecoutes micro simultanees, comportement
+    imprevisible)."""
+
+    def __init__(self, nom="BF_assistant_vocal_singleton"):
+        self.fichier_verrou = dossier_donnees_utilisateur() / f"{nom}.lock"
+        self.handle = None
+
+    def deja_lance(self):
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                self.handle = open(self.fichier_verrou, "w")
+                try:
+                    msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError:
+                    self.handle.close()
+                    self.handle = None
+                    return True
+                return False
+            else:
+                import fcntl
+
+                self.handle = open(self.fichier_verrou, "w")
+                try:
+                    fcntl.flock(self.handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    self.handle.close()
+                    self.handle = None
+                    return True
+                return False
+        except Exception:
+            journal.exception("Impossible de verifier l'instance unique, on continue quand meme.")
+            return False
+
+
 class FenetreBF(QMainWindow):
     fermeture_demandee = Signal()
 
@@ -81,6 +145,30 @@ MOIS_ANGLAIS = [
 wikipedia.set_lang("fr")
 
 
+def dossier_donnees_utilisateur():
+    """Dossier ecrivable pour les logs/verrous, meme si BF est installe dans
+    Program Files (lecture seule) ou lance en .exe."""
+    base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "BF"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def configurer_logging():
+    dossier = dossier_donnees_utilisateur()
+    fichier_log = dossier / "bf.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(fichier_log, encoding="utf-8"),
+        ],
+    )
+    return logging.getLogger("BF")
+
+
+journal = configurer_logging()
+
+
 def chemin_ressource(chemin_relatif):
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     return base / chemin_relatif
@@ -104,9 +192,12 @@ class AssistantBF:
         self.fenetre.fermeture_demandee.connect(self.masquer_fenetre)
 
         self.moteur = pyttsx3.init()
+        self.verrou_voix = threading.Lock()
         self.recognizer = sr.Recognizer()
         self.actions_interface = queue.Queue()
         self.ecoute_active = False
+        self.verrou_commande = threading.Lock()
+        self.commande_en_cours = False
         self.thread_ecoute = None
         self.image_actuelle = None
         self.icone_barre_systeme = None
@@ -279,10 +370,28 @@ class AssistantBF:
     def parler(self, texte):
         self.actions_interface.put(("message", "BF", texte))
         self.actions_interface.put(("visualiseur", "responding"))
-        print("BF :", texte)
-        self.configurer_voix(self.langue)
-        self.moteur.say(texte)
-        self.moteur.runAndWait()
+        journal.info("BF : %s", texte)
+        # Verrou indispensable : pyttsx3 n'est pas reentrant. Sans lui, deux
+        # threads qui appellent parler() en meme temps (ex: une commande
+        # tapee au clavier pendant que l'ecoute vocale repond) font planter
+        # le moteur ("run loop already started") - un des plantages les plus
+        # frequents une fois compile en .exe.
+        with self.verrou_voix:
+            try:
+                self.configurer_voix(self.langue)
+                self.moteur.say(texte)
+                self.moteur.runAndWait()
+            except RuntimeError:
+                journal.exception("Erreur moteur vocal, reinitialisation.")
+                try:
+                    self.moteur.stop()
+                except Exception:
+                    pass
+                try:
+                    self.moteur = pyttsx3.init()
+                    self.configurer_voix(self.langue)
+                except Exception:
+                    journal.exception("Impossible de reinitialiser le moteur vocal.")
 
     def changer_statut(self, texte):
         self.actions_interface.put(("statut", texte))
@@ -425,13 +534,53 @@ class AssistantBF:
             return
 
         self.ajouter_message("Vous", commande)
-        threading.Thread(target=self.executer_commande, args=(commande,), daemon=True).start()
+        threading.Thread(target=self.executer_commande_protegee, args=(commande,), daemon=True).start()
+
+    def executer_commande_protegee(self, commande):
+        """Empeche deux commandes de tourner en meme temps (ex: on tape au
+        clavier pendant que BF traite deja une commande vocale)."""
+        if not self.verrou_commande.acquire(blocking=False):
+            self.parler(
+                "Je traite deja une demande, une seconde."
+                if self.langue == "fr"
+                else "I'm already handling a request, one second."
+            )
+            return True
+        try:
+            return self.executer_commande(commande)
+        finally:
+            self.verrou_commande.release()
 
     def ecouter(self):
-        with sr.Microphone() as source:
-            self.changer_statut("J'ecoute...")
-            self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            audio = self.recognizer.listen(source, phrase_time_limit=7)
+        try:
+            with sr.Microphone() as source:
+                self.changer_statut("J'ecoute...")
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                # timeout= : sans micro qui capte du son, listen() attendait
+                # indefiniment -> le thread d'ecoute restait bloque "pour
+                # toujours" sans jamais planter ni reagir a Ctrl+B/tray.
+                audio = self.recognizer.listen(source, timeout=8, phrase_time_limit=7)
+        except sr.WaitTimeoutError:
+            self.changer_statut("Pret - Ctrl+B pour parler")
+            return ""
+        except OSError:
+            # Aucun microphone detecte / peripherique deconnecte.
+            journal.exception("Microphone indisponible.")
+            self.ecoute_active = False
+            self.actions_interface.put(
+                (
+                    "message",
+                    "BF",
+                    "Je ne trouve pas de microphone. Verifie qu'il est branche et autorise dans Windows.",
+                )
+            )
+            self.actions_interface.put(("statut", "Aucun microphone - Ctrl+B pour reessayer"))
+            self.actions_interface.put(("bouton", "Demarrer l'ecoute"))
+            return ""
+        except Exception:
+            journal.exception("Erreur inattendue pendant l'ecoute.")
+            self.changer_statut("Pret - Ctrl+B pour parler")
+            return ""
 
         resultats = []
         for code_langue, langue in LANGUES_RECONNAISSANCE:
@@ -460,7 +609,7 @@ class AssistantBF:
             _, self.langue, texte = max(resultats, key=lambda resultat: resultat[0])
             self.configurer_voix(self.langue)
             wikipedia.set_lang(self.langue)
-            print(f"Vous ({self.langue}) :", texte)
+            journal.info("Vous (%s) : %s", self.langue, texte)
             return texte
 
         if not resultats:
@@ -471,31 +620,39 @@ class AssistantBF:
         self.changer_statut("Ecoute active")
 
         while self.ecoute_active:
-            texte = self.ecouter()
+            try:
+                texte = self.ecouter()
 
-            if not texte:
-                continue
+                if not texte:
+                    continue
 
-            nom_detecte = self.detecter_nom(texte)
+                nom_detecte = self.detecter_nom(texte)
 
-            if nom_detecte:
-                self.actions_interface.put(("afficher",))
-                commande = texte.replace(nom_detecte, "").strip()
+                if nom_detecte:
+                    self.actions_interface.put(("afficher",))
+                    commande = texte.replace(nom_detecte, "").strip()
 
-                if commande == "":
-                    self.parler("Oui, je t'ecoute.")
-                    commande = self.ecouter()
+                    if commande == "":
+                        self.parler("Oui, je t'ecoute.")
+                        commande = self.ecouter()
 
-                if commande:
-                    self.actions_interface.put(("message", "Vous", commande))
-                    continuer = self.executer_commande(commande)
+                    if commande:
+                        self.actions_interface.put(("message", "Vous", commande))
+                        continuer = self.executer_commande_protegee(commande)
+                        self.arreter_si_termine(continuer)
+
+                elif self.est_commande_directe(texte):
+                    self.actions_interface.put(("afficher",))
+                    self.actions_interface.put(("message", "Vous", texte))
+                    continuer = self.executer_commande_protegee(texte)
                     self.arreter_si_termine(continuer)
-
-            elif self.est_commande_directe(texte):
-                self.actions_interface.put(("afficher",))
-                self.actions_interface.put(("message", "Vous", texte))
-                continuer = self.executer_commande(texte)
-                self.arreter_si_termine(continuer)
+            except Exception:
+                # Avant ce correctif, une exception ici tuait le thread
+                # d'ecoute en silence : le bouton restait sur "Arreter
+                # l'ecoute" mais BF ne repondait plus jamais, sans aucun
+                # message d'erreur visible.
+                journal.exception("Erreur dans la boucle d'ecoute, on continue.")
+                self.actions_interface.put(("statut", "Petit souci, je reessaie..."))
 
     def arreter_si_termine(self, continuer):
         if continuer:
@@ -532,7 +689,6 @@ class AssistantBF:
             "stop",
             "arrete",
             "time",
-            "date",
             "day",
             "today",
             "search",
@@ -787,7 +943,22 @@ class AssistantBF:
             return ""
 
 
+def gerer_exception_non_capturee(type_exception, valeur, traceback_):
+    journal.critical(
+        "Exception non capturee, BF va se fermer :",
+        exc_info=(type_exception, valeur, traceback_),
+    )
+
+
 if __name__ == "__main__":
+    sys.excepthook = gerer_exception_non_capturee
+    journal.info("Demarrage de BF (frozen=%s)", getattr(sys, "frozen", False))
+
+    verrou = InstanceUnique()
+    if verrou.deja_lance():
+        journal.info("BF est deja en cours d'execution, arret de cette instance.")
+        sys.exit(0)
+
     application = QApplication(sys.argv)
     application.setApplicationName("BF")
     racine = FenetreBF()

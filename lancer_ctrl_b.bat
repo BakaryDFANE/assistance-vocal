@@ -1,2 +1,3 @@
 @echo off
-py -3.12 "C:\Users\faneb\OneDrive\Documents\python project\assistance vocal\bf_ctrl_b_launcher.py"
+cd /d "%~dp0"
+py -3.12 "bf_ctrl_b_launcher.py"
