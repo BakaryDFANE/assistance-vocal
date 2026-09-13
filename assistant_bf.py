@@ -113,6 +113,8 @@ class AssistantBF:
         self.thread_barre_systeme = None
         self.application_en_fermeture = False
         self.langue = "fr"
+        self.visualiseur_pret = False
+        self.visualiseur_etat = "idle"
 
         self.choisir_voix_masculine()
         self.creer_interface()
@@ -162,6 +164,7 @@ class AssistantBF:
 
         self.visualiseur = QWebEngineView()
         self.visualiseur.setMinimumWidth(440)
+        self.visualiseur.loadFinished.connect(self.visualiseur_charge)
         self.visualiseur.setUrl(QUrl.fromLocalFile(str(chemin_ressource("assets/visualiseur_bf.html"))))
         zone.addWidget(self.visualiseur, 2)
 
@@ -261,13 +264,17 @@ class AssistantBF:
 
     def afficher_fenetre(self):
         self.fenetre.showNormal()
-        self.fenetre.lift()
+        self.fenetre.raise_()
         self.fenetre.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         self.fenetre.show()
         QTimer.singleShot(
             500,
-            lambda: self.fenetre.setWindowFlag(Qt.WindowStaysOnTopHint, False),
+            self.retirer_fenetre_au_premier_plan,
         )
+
+    def retirer_fenetre_au_premier_plan(self):
+        self.fenetre.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+        self.fenetre.show()
 
     def parler(self, texte):
         self.actions_interface.put(("message", "BF", texte))
@@ -288,10 +295,24 @@ class AssistantBF:
         self.actions_interface.put(("visualiseur", etat))
 
     def mettre_a_jour_visualiseur(self, etat):
-        if self.visualiseur.page().isLoading():
-            QTimer.singleShot(150, lambda: self.mettre_a_jour_visualiseur(etat))
+        self.visualiseur_etat = etat
+        if not self.visualiseur_pret:
             return
+        self.visualiseur.page().runJavaScript(
+            "typeof window.bfSetState === 'function'",
+            lambda pret: self.envoyer_etat_visualiseur(etat) if pret else QTimer.singleShot(
+                100,
+                lambda: self.mettre_a_jour_visualiseur(self.visualiseur_etat),
+            ),
+        )
+
+    def envoyer_etat_visualiseur(self, etat):
         self.visualiseur.page().runJavaScript(f"window.bfSetState({etat!r});")
+
+    def visualiseur_charge(self, succes):
+        self.visualiseur_pret = succes
+        if succes:
+            self.mettre_a_jour_visualiseur(self.visualiseur_etat)
 
     def traiter_actions_interface(self):
         while not self.actions_interface.empty():
